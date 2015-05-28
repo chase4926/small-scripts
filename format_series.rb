@@ -77,8 +77,13 @@ class FormatSeries
       end
       
       if match_data then
-        puts "#{filename} >> #{format_filename(match_data[1].to_i(), match_data[2].to_i(), extension)}"
-        rename_file(filepath, format_filename(match_data[1].to_i(), match_data[2].to_i(), extension)) if rename_files
+        new_filename = format_filename(match_data[1].to_i(), match_data[2].to_i(), extension)
+        if filename == new_filename then
+          puts "Skipped -- #{filename}"
+        else
+          puts "#{filename} >> #{new_filename}"
+          rename_file(filepath, new_filename) if rename_files
+        end
       end
     end
   end
@@ -86,7 +91,7 @@ end
 
 
 
-a = FormatSeries.new('Boardwalk Empire')
+a = FormatSeries.new('Rome')
 #a.add_pattern(/5.(\d)(\d+)/)
-a.format_series("C:/Users/Chase/Downloads/Boardwalk Empire/Season 05", true)
+a.format_series("L:/Movies/Rome/Season 01", true)
 
