@@ -1,3 +1,4 @@
+#!/usr/bin/env ruby
 
 # Regular Expression patterns:
 #
@@ -10,16 +11,20 @@
 # Babylon 5:
 # 5.(\d)(\d+)
 #
+# Stein's Gate EP01:
+# [e|E][p|P](\d+)
 #
 # UPDATE Jan 8 2015:
 # Just noticed that they changed the way to obtain the XML file (@series_xml = ...)
 # Add a new update if they do it again.
 #
 
+require 'optparse'
 require 'open-uri'
 require 'nokogiri'
 
 $TVDB_API_KEY = '7FEBFD17ED32D7B2'
+$VERBOSE = false
 
 
 def search_directory(folder='.', search_for='*')
@@ -36,26 +41,79 @@ def search_directory(folder='.', search_for='*')
 end
 
 
+def vputs(x)
+  puts x if $VERBOSE
+end
+
+
+class FormatSeriesOptions
+  attr_reader :params
+  def initialize()
+    @params = Hash.new(false)
+    @option_parser = OptionParser.new()
+    @option_parser.banner = "Usage: formatseries.rb {options} SeriesName path/to/series/directory"
+    @option_parser.on('-h', '--help', 'Displays this information') do
+      display_usage()
+    end
+    @option_parser.on('-v', '--verbose', 'Displays debug information') do
+      $VERBOSE = true
+    end
+    @option_parser.on('-d', '--dry', "Does a 'dry run'") do
+      @params[:dry] = true
+    end
+  end
+  
+  def display_usage()
+    puts(@option_parser)
+    exit()
+  end
+  
+  def parse_args(*args)
+    unparsed = @option_parser.parse(*args)
+    if unparsed.count() == 2 then
+      params[:unparsed] = unparsed.collect {|x| x.gsub('\\', '/')}
+    else
+      puts("Need to specify a series name and series directory!\n\n")
+      display_usage()
+    end
+    self
+  end
+end
+
+
 class FormatSeries
   def initialize(series_name)
     @series_name = series_name
     @series_id = Nokogiri::XML(open("http://thetvdb.com/api/GetSeries.php?seriesname=#{@series_name.gsub(' ', '%20')}")).at_xpath("//seriesid").child().content()
     @series_xml = Nokogiri::XML(open("http://thetvdb.com/api/#{$TVDB_API_KEY}/series/#{@series_id}/all/"))
     
-    @pattern_array = [/[s|S](\d+)[e|E](\d+)/, /(\d+)[x|X](\d+)/, /(\d+)[.](\d+)/, /[S|s]eason\D?(\d+).?[E|e]pisode\D?(\d+)/]
+    @pattern_array = [/[e|E][p|P](\d+)/, /[s|S](\d+)[e|E](\d+)/, /(\d+)[x|X](\d+)/, /(\d+)[.](\d+)/, /[S|s]eason\D?(\d+).?[E|e]pisode\D?(\d+)/]
   end
   
   def add_pattern(pattern)
-    @pattern_array << pattern if pattern.class == Regexp
+    @pattern_array.unshift(pattern) if pattern.class == Regexp
+  end
+  
+  def episode_exists?(season_number, episode_number)
+    return get_episode_name(season_number, episode_number) != nil
   end
   
   def get_episode_name(season_number, episode_number)
-    #puts "S[#{season_number}] E[#{episode_number}]"
-    return @series_xml.at_xpath("//Episode[SeasonNumber=\"#{season_number}\" and EpisodeNumber=\"#{episode_number}\"]/EpisodeName").child().content().gsub(/[?"]/, '').gsub(/[*:<>]/, ' ')
+    episode_name_xml = @series_xml.at_xpath("//Episode[SeasonNumber=\"#{season_number}\" and EpisodeNumber=\"#{episode_number}\"]/EpisodeName")
+    if episode_name_xml then
+      return episode_name_xml.child().content().gsub(/[?"]/, '').gsub(/[*:<>]/, ' ')
+    else
+      return nil
+    end
   end
   
   def format_filename(season_number, episode_number, extension)
-    return "#{@series_name} - s#{season_number.to_s().rjust(2, "0")}e#{episode_number.to_s().rjust(2, "0")} - #{get_episode_name(season_number, episode_number)}.#{extension}"
+    episode_name = get_episode_name(season_number, episode_number)
+    if episode_name then
+      return "#{@series_name} - s#{season_number.to_s().rjust(2, "0")}e#{episode_number.to_s().rjust(2, "0")} - #{episode_name}.#{extension}"
+    else
+      return nil
+    end
   end
   
   def rename_file(filepath, new_filename)
@@ -77,11 +135,31 @@ class FormatSeries
       end
       
       if match_data then
-        new_filename = format_filename(match_data[1].to_i(), match_data[2].to_i(), extension)
-        if filename == new_filename then
-          puts "Skipped -- #{filename}"
+        if match_data.length() == 2 then
+          # Only got an episode number, assume there is only one season
+          episode_number = match_data[1].to_i()
+          if episode_exists?(1, episode_number) then
+            new_filename = format_filename(1, episode_number, extension)
+          else
+            vputs("No episode information found for S01 E#{episode_number}!")
+            new_filename = filename
+          end
         else
-          puts "#{filename} >> #{new_filename}"
+          # Got a season and episode number, procede normally
+          season_number = match_data[1].to_i()
+          episode_number = match_data[2].to_i()
+          if episode_exists?(season_number, episode_number) then
+            new_filename = format_filename(season_number, episode_number, extension)
+          else
+            vputs("No episode information found for S#{season_number} E#{episode_number}!")
+            new_filename = filename
+          end
+        end
+        # Now we have all the information, let's rename those files!
+        if filename == new_filename then
+          vputs("Skipped -- #{filename}")
+        else
+          vputs("#{filename} >> #{new_filename}")
           rename_file(filepath, new_filename) if rename_files
         end
       end
@@ -90,8 +168,8 @@ class FormatSeries
 end
 
 
-
-a = FormatSeries.new('Rome')
-#a.add_pattern(/5.(\d)(\d+)/)
-a.format_series("L:/Movies/Rome/Season 01", true)
+options = FormatSeriesOptions.new().parse_args(*ARGV)
+fs = FormatSeries.new(options.params[:unparsed][0])
+#fs.add_pattern(/5.(\d)(\d+)/)
+fs.format_series(options.params[:unparsed][1], !options.params[:dry])
 
