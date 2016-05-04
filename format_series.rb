@@ -101,7 +101,7 @@ class FormatSeries
   def get_episode_name(season_number, episode_number)
     episode_name_xml = @series_xml.at_xpath("//Episode[SeasonNumber=\"#{season_number}\" and EpisodeNumber=\"#{episode_number}\"]/EpisodeName")
     if episode_name_xml then
-      return episode_name_xml.child().content().gsub(/[?"]/, '').gsub(/[*:<>]/, ' ')
+      return episode_name_xml.child().content().gsub(/[?"]/, '').gsub(/[*:<>\/]/, ' ')
     else
       return nil
     end
