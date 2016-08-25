@@ -61,6 +61,9 @@ class FormatSeriesOptions
     @option_parser.on('-d', '--dry', "Does a 'dry run'") do
       @params[:dry] = true
     end
+    @option_parser.on('-e', '--e', 'Makes the subtitles have .eng.[ext] for plex') do
+      @params[:subs] = true
+    end
   end
   
   def display_usage()
@@ -120,6 +123,25 @@ class FormatSeries
     File.rename(filepath, filepath.gsub(filepath.split('/').last(), new_filename))
   end
   
+  def fix_subs(lang, series_dir, rename_files=true)
+    search_directory(series_dir, '*.*').each() do |filepath|
+      old_filename = filepath.split('/').last()
+      extension = old_filename.split('.').last()
+      # Trim the extension off the filename
+      filename = old_filename.gsub(/\.#{extension}$/, '')
+      # Cut out the .eng if it exists
+      filename.gsub!(/\.#{lang}$/, '')
+      # Reform the filename with the desired language prefix
+      new_filename = "#{filename}.#{lang}.#{extension}"
+      if new_filename == old_filename then
+        vputs("Skipped -- #{old_filename}")
+      else
+        vputs("#{old_filename} >> #{new_filename}")
+        rename_file(filepath, new_filename) if rename_files
+      end
+    end
+  end
+  
   def format_series(series_dir, rename_files=true)
     filepath_array = search_directory(series_dir, '*.*')
     
@@ -171,5 +193,10 @@ end
 options = FormatSeriesOptions.new().parse_args(*ARGV)
 fs = FormatSeries.new(options.params[:unparsed][0])
 #fs.add_pattern(/5.(\d)(\d+)/)
-fs.format_series(options.params[:unparsed][1], !options.params[:dry])
+if options.params[:subs] then
+  # NOT FEATURE COMPLETE! - This is a hack that just renames the subs with .eng prefix
+  fs.fix_subs('eng', options.params[:unparsed][1], !options.params[:dry])
+else
+  fs.format_series(options.params[:unparsed][1], !options.params[:dry])
+end
 
