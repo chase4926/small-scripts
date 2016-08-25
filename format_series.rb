@@ -127,6 +127,7 @@ class FormatSeries
     search_directory(series_dir, '*.*').each() do |filepath|
       old_filename = filepath.split('/').last()
       extension = old_filename.split('.').last()
+      next if !['sub', 'idx'].include?(extension)
       # Trim the extension off the filename
       filename = old_filename.gsub(/\.#{extension}$/, '')
       # Cut out the .eng if it exists
