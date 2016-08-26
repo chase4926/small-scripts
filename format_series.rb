@@ -47,9 +47,8 @@ end
 
 
 class FormatSeriesOptions
-  attr_reader :params
   def initialize()
-    @params = Hash.new(false)
+    @params = Hash.new(nil)
     @option_parser = OptionParser.new()
     @option_parser.banner = "Usage: formatseries.rb {options} SeriesName path/to/series/directory"
     @option_parser.on('-h', '--help', 'Displays this information') do
@@ -61,8 +60,8 @@ class FormatSeriesOptions
     @option_parser.on('-d', '--dry', "Does a 'dry run'") do
       @params[:dry] = true
     end
-    @option_parser.on('-e', '--e', 'Makes the subtitles have .eng.[ext] for plex') do
-      @params[:subs] = true
+    @option_parser.on('-sLANG', '--sub=LANG', 'Makes the subtitles have .[LANG].[ext] for plex') do |lang|
+      @params[:subs] = lang
     end
   end
   
@@ -71,10 +70,18 @@ class FormatSeriesOptions
     exit()
   end
   
+  def [](x)
+    return @params[x]
+  end
+  
+  def []=(x, y)
+    @params[x] = y
+  end
+  
   def parse_args(*args)
     unparsed = @option_parser.parse(*args)
     if unparsed.count() == 2 then
-      params[:unparsed] = unparsed.collect {|x| x.gsub('\\', '/')}
+      self[:unparsed] = unparsed.collect {|x| x.gsub('\\', '/')}
     else
       puts("Need to specify a series name and series directory!\n\n")
       display_usage()
@@ -101,6 +108,14 @@ class FormatSeries
     return get_episode_name(season_number, episode_number) != nil
   end
   
+  def extension_is_subtitle?(extension)
+    if ['sub', 'idx', 'srt'].include?(extension) then
+      return true
+    else
+      return false
+    end
+  end
+  
   def get_episode_name(season_number, episode_number)
     episode_name_xml = @series_xml.at_xpath("//Episode[SeasonNumber=\"#{season_number}\" and EpisodeNumber=\"#{episode_number}\"]/EpisodeName")
     if episode_name_xml then
@@ -110,10 +125,14 @@ class FormatSeries
     end
   end
   
-  def format_filename(season_number, episode_number, extension)
+  def format_filename(season_number, episode_number, extension, subs_lang=nil)
     episode_name = get_episode_name(season_number, episode_number)
     if episode_name then
-      return "#{@series_name} - s#{season_number.to_s().rjust(2, "0")}e#{episode_number.to_s().rjust(2, "0")} - #{episode_name}.#{extension}"
+      if subs_lang and extension_is_subtitle?(extension) then
+        return "#{@series_name} - s#{season_number.to_s().rjust(2, "0")}e#{episode_number.to_s().rjust(2, "0")} - #{episode_name}.#{subs_lang}.#{extension}"
+      else
+        return "#{@series_name} - s#{season_number.to_s().rjust(2, "0")}e#{episode_number.to_s().rjust(2, "0")} - #{episode_name}.#{extension}"
+      end
     else
       return nil
     end
@@ -123,27 +142,7 @@ class FormatSeries
     File.rename(filepath, filepath.gsub(filepath.split('/').last(), new_filename))
   end
   
-  def fix_subs(lang, series_dir, rename_files=true)
-    search_directory(series_dir, '*.*').each() do |filepath|
-      old_filename = filepath.split('/').last()
-      extension = old_filename.split('.').last()
-      next if !['sub', 'idx'].include?(extension)
-      # Trim the extension off the filename
-      filename = old_filename.gsub(/\.#{extension}$/, '')
-      # Cut out the .eng if it exists
-      filename.gsub!(/\.#{lang}$/, '')
-      # Reform the filename with the desired language prefix
-      new_filename = "#{filename}.#{lang}.#{extension}"
-      if new_filename == old_filename then
-        vputs("Skipped -- #{old_filename}")
-      else
-        vputs("#{old_filename} >> #{new_filename}")
-        rename_file(filepath, new_filename) if rename_files
-      end
-    end
-  end
-  
-  def format_series(series_dir, rename_files=true)
+  def format_series(series_dir, rename_files=true, subs_lang=nil)
     filepath_array = search_directory(series_dir, '*.*')
     
     filepath_array.each() do |filepath|
@@ -162,7 +161,7 @@ class FormatSeries
           # Only got an episode number, assume there is only one season
           episode_number = match_data[1].to_i()
           if episode_exists?(1, episode_number) then
-            new_filename = format_filename(1, episode_number, extension)
+            new_filename = format_filename(1, episode_number, extension, subs_lang)
           else
             vputs("No episode information found for S01 E#{episode_number}!")
             new_filename = filename
@@ -172,7 +171,7 @@ class FormatSeries
           season_number = match_data[1].to_i()
           episode_number = match_data[2].to_i()
           if episode_exists?(season_number, episode_number) then
-            new_filename = format_filename(season_number, episode_number, extension)
+            new_filename = format_filename(season_number, episode_number, extension, subs_lang)
           else
             vputs("No episode information found for S#{season_number} E#{episode_number}!")
             new_filename = filename
@@ -192,12 +191,9 @@ end
 
 
 options = FormatSeriesOptions.new().parse_args(*ARGV)
-fs = FormatSeries.new(options.params[:unparsed][0])
+fs = FormatSeries.new(options[:unparsed][0])
 #fs.add_pattern(/5.(\d)(\d+)/)
-if options.params[:subs] then
-  # NOT FEATURE COMPLETE! - This is a hack that just renames the subs with .eng prefix
-  fs.fix_subs('eng', options.params[:unparsed][1], !options.params[:dry])
-else
-  fs.format_series(options.params[:unparsed][1], !options.params[:dry])
-end
+
+fs.format_series(options[:unparsed][1], !options[:dry], options[:subs])
+
 
